@@ -1,10 +1,10 @@
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
-use futures::future::FutureExt;
+
 use slab::Slab;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::time::{sleep, timeout};
-use tokio_tungstenite::tungstenite::{accept, connect, Message, WebSocket};
+use tokio::time::{timeout};
+use tokio_tungstenite::tungstenite::{Message};
 use tokio_tungstenite::{accept_async, WebSocketStream};
 
 mod request;
@@ -68,9 +68,9 @@ async fn main () {
     let server_data_arctex =Arc::new(Mutex::new(_server_data));
     let mut connection_counter = 0;
     println!("server started ... v0.2.2");
-    let cloned_server_data_arctex: Arc<Mutex<ServerData>> = server_data_arctex.clone();
+    let _cloned_server_data_arctex: Arc<Mutex<ServerData>> = server_data_arctex.clone();
 
-    while let (stream,sock_addr) = server.accept().await.expect("accept 失败") {
+    while let (stream,_sock_addr) = server.accept().await.expect("accept 失败") {
         connection_counter += 1;
         let cloned_server_data_arctex: Arc<Mutex<ServerData>> = server_data_arctex.clone();
         tokio::spawn(async move{
@@ -119,13 +119,13 @@ async fn close_sock(ws_thread_info_arctex : Arc<Mutex<WsThreadInfo>>, server_dat
             debug_info!("connection is not sure so do nothing")}
     }
 }
-async fn read_sock(ws_thread_info : Arc<Mutex<WsThreadInfo>>, server_data_arctex :Arc<Mutex<ServerData>>,read_arctex:StreamArctex)->Message{
+async fn read_sock(_ws_thread_info : Arc<Mutex<WsThreadInfo>>,_server_data_arctexex :Arc<Mutex<ServerData>>,read_arctex:StreamArctex)->Message{
     // debug_info!("{}","try read ");
     let cloned_read_arctex = read_arctex.clone();
     // 两分钟之内没有通讯就删了你
     let msg = match timeout(Duration::from_secs(1800),cloned_read_arctex.lock().await.next()).await{
         Ok(Some(Ok(m)))=>m,
-        Err(e)=>{
+        Err(_e)=>{
             println!("read 超时,断开连接");
             Message::Close(None)
         },
@@ -162,7 +162,7 @@ async fn after_board_confirmed(ws_thread_info_arctex : Arc<Mutex<WsThreadInfo>>,
             Ok(Some(Ok(m)))=>{
                 m
             },
-            Err(e)=>{
+            Err(_e)=>{
                 println!("read 超时,断开连接");
                 Message::Close(None)
             },
