@@ -1,14 +1,17 @@
 #[macro_export] 
 macro_rules! match_command{
-    ($(command $command_name:ident  with args ($($arg_n:ident:$arg_n_type:ident),*) $(=> $next_phase:ident)? )+  in $command_args:ident with context ($write:ident,$read:ident,$data_arctex:ident,$ws_thread_info:ident)) => {
+    ($(command $command_name:ident  with args ($($arg_n:ident:$arg_n_type:ident),*) debug $is_debug:ident $(=> $next_phase:ident)? )+  in $command_args:ident with context $ctx:ident) => {
         match($command_args){
-            $(Some(CommandArgs{command ,args}) if &command == stringify!($command_name) =>{
+            $(Some(MessageArgs{command ,args ,dialogue_id}) if &command == stringify!($command_name) =>{
                 let mut count = 0;
                 match ($({count+=1;&args[count-1].parse::<$arg_n_type>()}),*){
                     ($(Ok($arg_n)),*) =>{
-                        $command_name($ws_thread_info.clone(),$data_arctex.clone(),$write.clone(),$read.clone(), $($arg_n),*).await;
-                        println!("successfullly run \x1B[32m {} \x1B[0m with args \x1B[32m{:?}\x1B[0m",command,args);
-                        $(tokio::spawn($next_phase($ws_thread_info.clone(),$data_arctex.clone(),$write.clone(),$read.clone())).await;break;)?
+                        $command_name($ctx.clone(), $($arg_n),*).await;
+                        if $is_debug {println!("successfullly run \x1B[32m {} \x1B[0m with args \x1B[32m{:?}\x1B[0m",command,args);}
+                        $(
+                            $next_phase($ctx.clone()).await;
+                            break;
+                        )?
                     },
                     _ => {println!("conversion failed \x1B[31m{}\x1B[0m with args \x1B[31m{:?}\x1B[0m ",stringify!($command_name), args)}
                 }
@@ -20,10 +23,40 @@ macro_rules! match_command{
         }
     } ;
 }
+#[macro_export] 
+macro_rules! match_command_with_event_id {
+    () => {
+        
+    };
+}
+#[macro_export] 
+macro_rules! response_of {
+    () => {
+        
+    };
+}
 #[macro_export ]
-macro_rules! debug_info{
+macro_rules! debug_info_blue{
     ($($t:tt)*) => {{
         println!("\x1B[34m debuginfo {}\x1B[0m",format!($($t)*))
+    }};
+}
+#[macro_export ]
+macro_rules! debug_info_yellow{
+    ($($t:tt)*) => {{
+        println!("\x1B[33m debuginfo {}\x1B[0m",format!($($t)*))
+    }};
+}
+#[macro_export ]
+macro_rules! debug_info_green{
+    ($($t:tt)*) => {{
+        println!("\x1B[32m debuginfo {}\x1B[0m",format!($($t)*))
+    }};
+}
+#[macro_export ]
+macro_rules! debug_info_red{
+    ($($t:tt)*) => {{
+        println!("\x1B[31m debuginfo {}\x1B[0m",format!($($t)*))
     }};
 }
 // macro_rules! std_read_loop {

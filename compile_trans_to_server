@@ -1,3 +1,3 @@
 cargo build --target x86_64-unknown-linux-musl --release
 # ssh ubuntu@1.13.2.149 "pkill websocket_tokio_server"
-scp target/x86_64-unknown-linux-musl/release/websocket_tokio_server ubuntu@1.13.2.149:/home/ubuntu/rust_websocket/
+scp target/x86_64-unknown-linux-musl/release/websocket_tokio_server ubuntu@1.13.2.149:/home/ubuntu/rust_websocket/websocket_tokio_server_new

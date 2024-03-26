@@ -1,61 +1,136 @@
-use std::{fmt::format, rc::Rc, sync::{Arc }};
+use std::{fmt::format, sync::Arc};
 use tokio::sync::Mutex;
 
-use futures::stream::SplitSink;
-use futures_util::{FutureExt, Sink, SinkExt, StreamExt};
+use futures::stream::{SplitSink, SplitStream};
+use futures_util::SinkExt;
 
 use tokio::net::TcpStream;
-use tokio_tungstenite::{tungstenite::{Message, WebSocket}, WebSocketStream};
+use tokio_tungstenite::{tungstenite::{handshake::server, Message}, WebSocketStream};
 
-use crate::{debug_info, BoardInfo, BoardOrApp, ServerData, SinkArctex, StreamArctex, WsThreadInfo};
+use crate::{debug_info_blue, debug_info_green, debug_info_red, referee_info::RefereeInfo, room::{self, Room}, visitor_info::VisitorInfo, BoardInfo, Character, ServerData, WsThreadInfo};
 
-pub async fn register_app(ws_thread_arctex:Arc<Mutex<WsThreadInfo>>,server_data_arctex:Arc<Mutex<ServerData>>,write:SinkArctex,read:StreamArctex,
-    user_name:&String , room_num:&i32){
-    let mut server_data = server_data_arctex.lock().await;
-    if !server_data.rooms.contains(room_num){
-        // 不包含这个room则插入新的room
-        server_data.rooms.push(*room_num);
+pub type Sink = SplitSink<WebSocketStream<TcpStream>,Message>;
+pub type Stream = SplitStream<WebSocketStream<TcpStream>>;
+pub type SinkArctex = Arc<Mutex<Sink>>;
+pub type StreamArctex = Arc<Mutex<Stream>>;
+
+#[derive(Clone)]
+pub struct Context{
+    pub ws_thread_info_arctex:Arc<Mutex<WsThreadInfo>>,pub server_data_arctex:Arc<Mutex<ServerData>>,pub write:SinkArctex,pub read:StreamArctex
+}
+
+pub async fn register_app(ctx:Context,user_name:&String, room_num:&u32, board_id:&usize){ 
+    let mut server_data = ctx.server_data_arctex.lock().await;
+    match server_data.rooms.binary_search(&Room::new(*room_num)){
+        Ok(index) => {
+            // do nothng 
+            let room = server_data.rooms .get_mut(index).expect("找不到index对应的room");
+            room.board_nums.push(*room_num);
+        },
+        Err(index_to_insert) => {
+            // 没找到，那就创建这个房间
+            server_data.rooms.insert(index_to_insert,Room::new(*room_num));
+        },
     }
-    ws_thread_arctex.lock().await.board_or_app = BoardOrApp::App;
+    ctx.ws_thread_info_arctex.lock().await.character = Character::App {  board_id: *board_id};
+    // 并把 app 对应的board 的 board info 的room_num 也设置成这个room_num
+    match server_data.boards.get_mut(*board_id){
+        Some(board) => board.op_room_num = Some(*room_num) ,
+        None => debug_info_red!("用这个board id {} 找不到 Board",board_id),
+    }
     println!("register app user_name:{} room_num:{}",user_name,room_num)
 }
-pub async fn register_board(ws_thread_arctex:Arc<Mutex<WsThreadInfo>>,server_data_arc_mtx:Arc<Mutex<ServerData>>,write:SinkArctex,read:StreamArctex,
-    wifi:&String , ip:&String){
-    let mut server_data = server_data_arc_mtx.lock().await;
-    let board_id = server_data.boards.insert( BoardInfo{
-        wifi : wifi.clone(),ip : ip.clone(),write:write.clone(), read:read.clone()
-    });
-    debug_info!("{:?}",server_data.boards);
+pub async fn register_board(ctx:Context, wifi:&String , ip:&String){
+    let mut server_data = ctx.server_data_arctex.lock().await;
+    let board_id = server_data.boards.insert( BoardInfo::new(wifi.clone(), ip.clone(), ctx.read.clone(),ctx.write.clone()));
+    debug_info_green!("{:?}",server_data.boards);
     // 对thread info
-    ws_thread_arctex.lock().await.board_or_app = BoardOrApp::Board { board_id: board_id };
-    println!("register board wifi:{} ip:{} board_or_app {:?}",wifi,ip,ws_thread_arctex.lock().await.board_or_app);
+    ctx.ws_thread_info_arctex.lock().await.character = Character::Board { board_id: board_id};
+    println!("register board wifi:{} ip:{} board_or_app {:?}",wifi,ip,ctx.ws_thread_info_arctex.lock().await.character);
 }
 
-pub async fn request_list_rooms(ws_thread_info_arctex:Arc<Mutex<WsThreadInfo>>,server_data_arc_mtx:Arc<Mutex<ServerData>>,write:SinkArctex,read:StreamArctex){
-    let (server_data,mut write)= (server_data_arc_mtx.lock().await,write.lock().await);
+pub async fn request_list_rooms(ctx:Context){
+    let (server_data,mut write)= (ctx.server_data_arctex.lock().await,ctx.write.lock().await);
     // server_data.rooms.iter().map(|x| x.to_string()).
-    let rooms_strs:Vec<String>  = server_data.rooms.iter().map(i32::to_string).collect();
+    let rooms_strs:Vec<String>  = server_data.rooms.iter().map(|room|room.room_num.to_string()).collect();
     let rooms_str  =rooms_strs.join(",");
     write.send(Message::Text(format!("response_list_rooms:({})",rooms_str))).await;
-    debug_info!("{}",Message::Text(format!("response_list_rooms:({})",rooms_str)).to_string());
+    debug_info_blue!("{}",Message::Text(format!("response_list_rooms:({})",rooms_str)).to_string());
 }
-pub async fn request_list_boards(ws_thread_info_arctex:Arc<Mutex<WsThreadInfo>>,server_data_arc_mtx:Arc<Mutex<ServerData>>,write:SinkArctex,read:StreamArctex){
-    let (server_data,mut write)= (server_data_arc_mtx.lock().await,write.lock().await);
+pub async fn request_list_boards(ctx:Context){
+    let (server_data,mut write)= (ctx.server_data_arctex.lock().await,ctx.write.lock().await);
     // server_data.rooms.iter().map(|x| x.to_string()).
     let id_wifi_ip_tuple_strs:Vec<String>  = server_data.boards.iter()
         .map(|(board_id, board_info)|format!("({},{},{})",board_id,board_info.wifi,board_info.ip).to_string()).collect();
     let id_wifi_ip_str  =format!("{}",id_wifi_ip_tuple_strs.join(","));
     write.send(Message::Text(format!("response_list_boards:({})",id_wifi_ip_str))).await;
-    debug_info!("{}",Message::Text(format!("response_list_boards:({})",id_wifi_ip_str)).to_string());
+    debug_info_blue!("{}",Message::Text(format!("response_list_boards:({})",id_wifi_ip_str)).to_string());
+}
+
+pub async fn request_get_model_type(ctx:Context){
+    let (server_data,mut write)= (ctx.server_data_arctex.lock().await,ctx.write.lock().await);
+    // server_data.rooms.iter().map(|x| x.to_string()).
+    write.send(Message::Text(format!("response_get_model_type:({})",1))).await;
+    debug_info_red!("{}",Message::Text(format!("send:({})",1)).to_string());
 }
 
 // deprecated 
-pub async fn disconnect(ws_thread_info_arctex:Arc<Mutex<WsThreadInfo>>,server_data_arc_mtx:Arc<Mutex<ServerData>>,write:SinkArctex,read:StreamArctex){
-    let (server_data,mut write)= (server_data_arc_mtx.lock(),write.lock().await);
-    write.flush();
-    write.send(Message::Close(None)).await;
-}
-
-pub async fn log(ws_thread_info:Arc<Mutex<WsThreadInfo>>,server_data_arc_mtx:Arc<Mutex<ServerData>>,write:SinkArctex,read:StreamArctex,log_string:&String){
+pub async fn log(ctx:Context,log_string:&String){
     println!("\x1B[34m{}\x1B[0m",log_string)
 }
+
+// Referee end
+pub async fn register_referee(ctx:Context,room_num:&u32){ 
+    let mut server_data = ctx.server_data_arctex.lock().await;
+    let referee_index = server_data.referees.insert(RefereeInfo::new(*room_num));
+    ctx.ws_thread_info_arctex.lock().await.character = Character::Referee {  referee_id: referee_index};
+    println!("register referee in room_num:{}",room_num)
+}
+pub async fn register_visitor(ctx:Context,room_num:&u32){ 
+    let mut server_data = ctx.server_data_arctex.lock().await;
+    let visitor_id = server_data.visitors.insert(VisitorInfo::new(ctx.read.clone(), ctx.write.clone(),*room_num));
+    ctx.ws_thread_info_arctex.lock().await.character = Character::Visitor { visitor_id };
+    println!("register visitor as visitor_id:{} in room_num:{}",visitor_id,room_num)
+}
+
+// pub async fn request_set_
+pub async fn request_set_board_coords(ctx:Context,board_id:&usize,x:&f32,y:&f32) {
+    debug_info_green!("send x:{} y:{} to board {}",x,y,board_id);
+    let mut server_data = ctx.server_data_arctex.lock().await;
+    let (msg,board_op_room_num) = match server_data.boards.get(*board_id){
+        Some(board_info) => {
+            (Message::Text(format!("request_set_board_coords:({},{},{})",board_id,x,y)),board_info.op_room_num.clone())
+        },
+        None => {debug_info_red!("未找到这个 board_id:{} 对应的 board",board_id);return;},
+    };
+    for (_,visitor) in server_data.visitors.iter_mut(){
+        if Some(visitor.room_num) == board_op_room_num{
+            visitor.write.lock().await.send(msg.clone());
+        }else{
+            debug_info_red!("未找到这个 board_id:{} 对应的 board",board_id);return;
+        }
+    }
+}
+pub async fn request_list_boards_in_room(ctx:Context,room_num:&u32){
+    let (server_data,mut write)= (ctx.server_data_arctex.lock().await,ctx.write.lock().await);
+    let board_ids:Vec<String>  = server_data.boards.iter().filter(|(board_id, board_info)|board_info.op_board_name.is_some()&& board_info.op_room_num.unwrap() == *room_num)
+            .map(|(board_id, board_info)| format!("({},{})",board_id,board_info.op_board_name.clone().unwrap_or_else(||{debug_info_red!("这个 board_id:{} 没有对应的 board_name",board_id);"no_name".to_string()})))
+            .collect();
+    let str_board_ids: String  =format!("{}",board_ids.join(","));
+    write.send(Message::Text(format!("response_list_boards:({})",str_board_ids))).await;
+    debug_info_blue!("{}",Message::Text(format!("response_list_boards:({})",str_board_ids)).to_string());
+}
+
+// visitor related 
+// pub async fn request_get_board_coords(ctx:Context,board_id:&usize) {
+//     let mut server_data = ctx.server_data_arctex.lock().await;
+//     let op_board_info = server_data.boards.get_mut(*board_id);
+//     match op_board_info{
+//         Some(board_info) => {
+//             debug_info_green!("send x:{} y:{} to visitor {}",board_info.pos_x,board_info.pos_y,board_id);
+//             let msg = Message::Text(format!("response_set_baord_coords:({},{},{})",board_id,board_info.pos_x,board_info.pos_y));
+//             visito.write.lock().await.send(msg).await;
+//         },
+//         None => debug_info_green!("未找到这个 board_id:{} 对应的 board",board_id),
+//     }
+// }
