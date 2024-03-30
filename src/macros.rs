@@ -1,6 +1,6 @@
 #[macro_export] 
 macro_rules! match_command{
-    ($(command $command_name:ident  with args ($($arg_n:ident:$arg_n_type:ident),*) debug $is_debug:ident $(=> $next_phase:ident)? )+  in $command_args:ident with context $ctx:ident) => {
+    ($(command $command_name:ident  with args ($($arg_n:ident:$arg_n_type:ident),*) debug $is_debug:ident $(=> $($next_phase:ident),*)? )+  in $command_args:ident with context $ctx:ident) => {
         match($command_args){
             $(Some(MessageArgs{command ,args ,dialogue_id}) if &command == stringify!($command_name) =>{
                 let mut count = 0;
@@ -9,7 +9,9 @@ macro_rules! match_command{
                         $command_name($ctx.clone(), $($arg_n),*).await;
                         if $is_debug {println!("successfullly run \x1B[32m {} \x1B[0m with args \x1B[32m{:?}\x1B[0m",command,args);}
                         $(
-                            $next_phase($ctx.clone()).await;
+                            join!($(
+                                $next_phase($ctx.clone())
+                            ),*);
                             break;
                         )?
                     },

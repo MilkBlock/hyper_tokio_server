@@ -19,24 +19,38 @@ pub struct Context{
     pub ws_thread_info_arctex:Arc<Mutex<WsThreadInfo>>,pub server_data_arctex:Arc<Mutex<ServerData>>,pub write:SinkArctex,pub read:StreamArctex
 }
 
-pub async fn register_app(ctx:Context,user_name:&String, room_num:&u32, board_id:&usize){ 
+pub async fn register_app(ctx:Context,user_name:&String, room_num:&u32, board_idx:&usize){ 
+    
     let mut server_data = ctx.server_data_arctex.lock().await;
-    match server_data.rooms.binary_search(&Room::new(*room_num)){
-        Ok(index) => {
-            // do nothng 
-            let room = server_data.rooms .get_mut(index).expect("找不到index对应的room");
-            room.board_nums.push(*room_num);
-        },
-        Err(index_to_insert) => {
-            // 没找到，那就创建这个房间
-            server_data.rooms.insert(index_to_insert,Room::new(*room_num));
-        },
+    ctx.ws_thread_info_arctex.lock().await.character = Character::App {  board_id: *board_idx, };
+    let mut flag = false; 
+    for room in server_data.rooms.iter_mut(){
+        if room_num == &room.room_num{
+            if room.board_nums.contains(board_idx){
+                debug_info_red!("room {} 已经包含了 board {}",room_num,board_idx);
+            }else {
+                room.board_nums.push(*board_idx);
+                break;
+            }
+            flag = true;
+        }
     }
-    ctx.ws_thread_info_arctex.lock().await.character = Character::App {  board_id: *board_id};
+    // 如果没有这个room
+    if flag == false{
+        let mut room = Room::new(*room_num);
+        room.board_nums.push(*board_idx);
+        server_data.rooms.push(room);
+    }
+
     // 并把 app 对应的board 的 board info 的room_num 也设置成这个room_num
-    match server_data.boards.get_mut(*board_id){
-        Some(board) => board.op_room_num = Some(*room_num) ,
-        None => debug_info_red!("用这个board id {} 找不到 Board",board_id),
+    match server_data.boards.get_mut(*board_idx){
+        Some(board) => {
+            if !board.op_room_num.is_none(){
+                debug_info_red!("这个board 已经进入了别的房间");
+            }
+            board.op_room_num = Some(*room_num) 
+        },
+        None => debug_info_red!("用这个board id {} 找不到 Board",board_idx),
     }
     println!("register app user_name:{} room_num:{}",user_name,room_num)
 }
@@ -52,9 +66,9 @@ pub async fn register_board(ctx:Context, wifi:&String , ip:&String){
 pub async fn request_list_rooms(ctx:Context){
     let (server_data,mut write)= (ctx.server_data_arctex.lock().await,ctx.write.lock().await);
     // server_data.rooms.iter().map(|x| x.to_string()).
-    let rooms_strs:Vec<String>  = server_data.rooms.iter().map(|room|room.room_num.to_string()).collect();
+    let rooms_strs:Vec<String> = server_data.rooms.iter().map(|room|room.room_num.to_string()).collect();
     let rooms_str  =rooms_strs.join(",");
-    write.send(Message::Text(format!("response_list_rooms:({})",rooms_str))).await;
+    // write.send(Message::Text(format!("response_list_rooms:({})",rooms_str))).await;
     debug_info_blue!("{}",Message::Text(format!("response_list_rooms:({})",rooms_str)).to_string());
 }
 pub async fn request_list_boards(ctx:Context){
@@ -134,3 +148,15 @@ pub async fn request_list_boards_in_room(ctx:Context,room_num:&u32){
 //         None => debug_info_green!("未找到这个 board_id:{} 对应的 board",board_id),
 //     }
 // }
+pub async fn check(ctx:Context){
+    match ctx.ws_thread_info_arctex.lock().await.character{
+        Character::Board { board_id } => println!("board {} checked",board_id),
+        Character::App { board_id } => println!("app of board {} checked",board_id),
+        Character::Referee { referee_id } => println!("referee {} checked",referee_id),
+        Character::Visitor { visitor_id } => println!("visitor {} checked",visitor_id),
+        Character::NotSure => {
+            // do nothing 
+        },
+        Character::Exited => debug_info_red!("收到了来自一个已经断开连接的客户端的 在线消息 "),
+    }
+}

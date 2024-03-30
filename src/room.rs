@@ -1,7 +1,7 @@
 
 pub struct Room{
     pub room_num:u32,
-    pub board_nums:Vec<u32>,
+    pub board_nums:Vec<usize>,
 }
 
 impl PartialEq for Room{

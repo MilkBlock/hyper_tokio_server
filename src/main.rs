@@ -3,16 +3,19 @@ use character::Character;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 
+use player_app_info::PlayerAppInfo;
 use referee_info::RefereeInfo;
 use request::{SinkArctex, StreamArctex};
 use room::Room;
 use slab::Slab;
+use tokio::join;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout, Timeout};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{accept_async, WebSocketStream};
 
 mod request;
+mod player_app_info;
 mod command_args;
 mod macros;
 mod room;
@@ -27,12 +30,16 @@ use std::fmt::Debug;
 use std::time::Duration;
 
 use crate::command_args::MessageArgs;
-use crate::request::{ log, register_app, register_board, register_referee, register_visitor, request_get_model_type, request_list_boards, request_list_boards_in_room, request_list_rooms, request_set_board_coords, Context};
+use crate::request::{ check, log, register_app, register_board, register_referee, register_visitor, request_get_model_type, request_list_boards, request_list_boards_in_room, request_list_rooms, request_set_board_coords, Context};
+
+const ONLINE_TIMEOUT_SECS:u64 = 4;
+const REQUEST_ONLINE_CHECK_INTERVAL:u64 = 2;
 pub struct ServerData{
     rooms : Vec<Room>,
     boards : Slab<BoardInfo>,
     visitors : Slab<VisitorInfo>,
-    referees : Slab<RefereeInfo>
+    referees : Slab<RefereeInfo>,
+    player_apps : Slab<PlayerAppInfo>,
 }
 pub struct WsThreadInfo{
     character :Character,
@@ -53,7 +60,7 @@ impl WsThreadInfo{
 async fn main () {
     let server = TcpListener::bind("0.0.0.0:11451").await.expect("bind 端口失败");
     // ? 服务端端口注册完毕，进行数据初始化
-    let mut _server_data = ServerData{rooms:Vec::from([Room::new(1)]),boards:Slab::new(),visitors:Slab::new(), referees: Slab::new() };
+    let mut _server_data = ServerData{rooms:Vec::from([Room::new(1)]),boards:Slab::new(),visitors:Slab::new(),referees:Slab::new(), player_apps: Slab::new()};
     let server_data_arctex =Arc::new(Mutex::new(_server_data));
     let mut connection_counter = 0;
     println!("server started ... v0.2.2");
@@ -79,7 +86,7 @@ async fn main () {
 
 
             loop{
-                let msg = read_sock(ctx.clone()).await;
+                let msg = read_sock_with_timeout(ctx.clone()).await;
                 if msg.is_close(){ close_sock(ctx).await; break; }
                 if msg.is_text() {
                     let msg = msg.into_text().unwrap();
@@ -88,13 +95,13 @@ async fn main () {
                     let msg_args = MessageArgs::parse_message(msg);
                     match_command!(
                         command register_app with args (user_name:String,room_num:u32,board_id:usize) debug true
-                            => after_app_confirmed
+                            => after_app_confirmed,online_check
                         command register_board with args (wifi:String,ip:String) debug true
-                            => after_board_confirmed
+                            => after_board_confirmed,online_check
                         command register_referee with args (room_num:u32) debug true
-                            => after_referee_confirmed
+                            => after_referee_confirmed,online_check
                         command register_visitor with args (room_num:u32) debug true
-                            => after_visitor_confirmed
+                            => after_visitor_confirmed,online_check
                         command log with args (log_str:String) debug false
                         command request_list_rooms with args () debug true
                         command request_list_boards with args () debug true
@@ -108,12 +115,13 @@ async fn main () {
     }
 }
 async fn close_sock(ctx:Context){
-    println!("connection {} closed",ctx.ws_thread_info_arctex.lock().await.connect_id);
-    match ctx.ws_thread_info_arctex.lock().await.character {
-        Character::Board { board_id} =>{
+    let mut ws_thread_info = ctx.ws_thread_info_arctex.lock().await;
+    println!("connection {} closed",ws_thread_info.connect_id);
+    match ws_thread_info.character {
+        Character::Board { board_id: board_idx} =>{
             let mut server_data = ctx.server_data_arctex.lock().await;
-            debug_info_green!("remove board {} in room_num:{:?}",board_id, ctx.server_data_arctex.lock().await.boards.get(board_id).unwrap().op_room_num);
-            server_data.boards.remove(board_id);
+            debug_info_green!("remove board {} in room_num:{:?}",board_idx, server_data.boards.get(board_idx).expect(format!("找不到要删的 board {}",board_idx).as_str()).op_room_num);
+            server_data.boards.remove(board_idx);
         },
         Character::App{   board_id }=> {
             debug_info_green!("app disconnected")
@@ -127,13 +135,15 @@ async fn close_sock(ctx:Context){
         Character::Visitor { visitor_id} => {
             debug_info_green!("visitor disconnected")
         },
+        Character::Exited => {debug_info_red!("你不能断开已经断开的连接char")},
     }
+    ws_thread_info.character = Character::Exited;
 }
-async fn read_sock(ctx:Context)->Message{
+async fn read_sock_with_timeout(ctx:Context)->Message{
     // debug_info!("{}","try read ");
     let cloned_read_arctex = ctx.read.clone();
     // 半小时之内没有通讯就删了你
-    let msg = match timeout(Duration::from_secs(1800),cloned_read_arctex.lock().await.next()).await{
+    let msg = match timeout(Duration::from_secs(ONLINE_TIMEOUT_SECS),cloned_read_arctex.lock().await.next()).await{
         Ok(Some(Ok(m)))=>m,
         Err(_e)=>{
             println!("read 超时,断开连接");
@@ -145,29 +155,61 @@ async fn read_sock(ctx:Context)->Message{
     };
     msg
 }
+async fn online_check(ctx:Context){
+    debug_info_green!("online check started");
+    loop {
+        match ctx.write.lock().await.send(Message::text("request_check:()")).await{
+            Ok(_) => {
+                // do nothing 管杀不管埋
+            },
+            Err(_) => {}
+            // debug_info_red!("无法发送 online check")
+        }
+        match ctx.ws_thread_info_arctex.lock().await.character{
+            Character::Exited => {debug_info_green!("online_check exited" ); return;},
+            _ => {},
+        }
+        sleep(Duration::from_secs(REQUEST_ONLINE_CHECK_INTERVAL)).await;
+    }
+}
 async fn after_app_confirmed(ctx:Context){
     loop{
-        let msg = read_sock(ctx.clone()).await;
-        if msg.is_close(){ close_sock(ctx.clone()).await; break; }
-        if msg.is_text() {
-            let msg = msg.into_text().unwrap();
-            println!("receive \"{}\"",msg);
-            let cmd_args = MessageArgs::parse_message(msg);
-            match_command!(
-                command request_list_rooms with args () debug true
-                command request_list_boards with args () debug true
-                command log with args (log_string:String)  debug false
-                in cmd_args with context ctx
-            )
+        // let msg = read_sock(ctx.clone()).await;
+        let msg = match timeout(Duration::from_millis(2000),ctx.read.lock().await.next()).await{
+            Ok(Some(Ok(m)))=>{
+                m
+            },
+            Err(_e)=>{
+                println!("read 超时,断开连接");
+                Message::Close(None)
+            },
+            _ => {
+                Message::Close(None)
+            }
+        };
+
+        match msg{ 
+            Message::Text(text) => {
+                println!("receive \"{}\"",text);
+                let cmd_args = MessageArgs::parse_message(text);
+                match_command!(
+                    command request_list_rooms with args () debug true
+                    command request_list_boards with args () debug true
+                    command log with args (log_string:String)  debug false
+                    command check with args () debug true 
+                    in cmd_args with context ctx
+                )
+            },
+            Message::Close(_) => {
+                close_sock(ctx.clone()).await; 
+                break;
+            },
+            _=> panic!("无法识别此 message"), 
         }
     }
 }
 async fn after_board_confirmed(ctx:Context){
     loop{
-        // board 必须返回 check:() 才行
-        let mut write = ctx.write.lock().await;
-        let _ = write.send(Message::Text("request_check:()".to_string())).await;
-        // debug_info!("send {}",Message::Text("request_check".to_string()) );
         let msg = match timeout(Duration::from_millis(3000),ctx.read.lock().await.next()).await{
             Ok(Some(Ok(m)))=>{
                 m
@@ -181,20 +223,16 @@ async fn after_board_confirmed(ctx:Context){
             }
         };
         if let Message::Text(text)=msg{
-            if text.contains("check:()"){
-                // debug_info!("check")
-                // should do nothing 
-            }
+
         }else if let Message::Close(_) = msg{
             close_sock(ctx.clone()).await;
             break;
         }
-        tokio::time::sleep(Duration::from_millis(3000)).await;
     }
 }
 async fn after_referee_confirmed(ctx:Context){
     loop{
-        let msg = read_sock(ctx.clone()).await;
+        let msg = read_sock_with_timeout(ctx.clone()).await;
         if msg.is_close(){ close_sock(ctx.clone()).await; break; }
         if msg.is_text() {
             let msg = msg.into_text().unwrap();
@@ -213,7 +251,7 @@ async fn after_referee_confirmed(ctx:Context){
 }
 async fn after_visitor_confirmed(ctx:Context){
     loop{
-        let msg = read_sock(ctx.clone()).await;
+        let msg = read_sock_with_timeout(ctx.clone()).await;
         if msg.is_close(){ close_sock(ctx.clone()).await; break; }
         if msg.is_text() {
             let msg = msg.into_text().unwrap();

@@ -18,4 +18,5 @@ pub enum Character{
         // room_num: u32
     },
     NotSure,
+    Exited,
 }
