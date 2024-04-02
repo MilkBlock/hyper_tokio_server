@@ -21,6 +21,7 @@ pub struct Context{
 
 pub async fn register_app(ctx:Context,user_name:&String, room_num:&u32, board_idx:&usize){ 
     
+    debug_info_green!("start register app");
     let mut server_data = ctx.server_data_arctex.lock().await;
     ctx.ws_thread_info_arctex.lock().await.character = Character::App {  board_id: *board_idx, };
     let mut flag = false; 

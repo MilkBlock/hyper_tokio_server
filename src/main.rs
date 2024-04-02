@@ -33,6 +33,7 @@ use crate::command_args::MessageArgs;
 use crate::request::{ check, log, register_app, register_board, register_referee, register_visitor, request_get_model_type, request_list_boards, request_list_boards_in_room, request_list_rooms, request_set_board_coords, Context};
 
 const ONLINE_TIMEOUT_SECS:u64 = 4;
+const INF_ONLINE_TIMEOUT_SECS:u64 = 4;
 const REQUEST_ONLINE_CHECK_INTERVAL:u64 = 2;
 pub struct ServerData{
     rooms : Vec<Room>,
@@ -86,7 +87,7 @@ async fn main () {
 
 
             loop{
-                let msg = read_sock_with_timeout(ctx.clone()).await;
+                let msg = read_sock(ctx.clone()).await;
                 if msg.is_close(){ close_sock(ctx).await; break; }
                 if msg.is_text() {
                     let msg = msg.into_text().unwrap();
@@ -104,8 +105,9 @@ async fn main () {
                             => after_visitor_confirmed,online_check
                         command log with args (log_str:String) debug false
                         command request_list_rooms with args () debug true
+                        command request_set_board_coords with args (board_id:usize,x:f32,y:f32) debug true
                         command request_list_boards with args () debug true
-                        command request_get_model_type with args () debug true
+                        // command request_get_model_type with args () debug true
                         in msg_args 
                         with context ctx
                     )
@@ -144,6 +146,22 @@ async fn read_sock_with_timeout(ctx:Context)->Message{
     let cloned_read_arctex = ctx.read.clone();
     // 半小时之内没有通讯就删了你
     let msg = match timeout(Duration::from_secs(ONLINE_TIMEOUT_SECS),cloned_read_arctex.lock().await.next()).await{
+        Ok(Some(Ok(m)))=>m,
+        Err(_e)=>{
+            println!("read 超时,断开连接");
+            Message::Close(None)
+        },
+        _ => {
+            Message::Close(None)
+        }
+    };
+    msg
+}
+async fn read_sock(ctx:Context)->Message{
+    // debug_info!("{}","try read ");
+    let cloned_read_arctex = ctx.read.clone();
+    // 半小时之内没有通讯就删了你
+    let msg = match timeout(Duration::from_secs(INF_ONLINE_TIMEOUT_SECS),cloned_read_arctex.lock().await.next()).await{
         Ok(Some(Ok(m)))=>m,
         Err(_e)=>{
             println!("read 超时,断开连接");
@@ -262,6 +280,7 @@ async fn after_visitor_confirmed(ctx:Context){
                 // command request_list_boards with args () debug true
                 // command request_list_boards_in_room with args (room_num:u32) debug true
                 // command request_set_board_coords with args (board_id:usize,x:f32,y:f32) debug true
+                command request_get_model_type with args () debug true
                 command log with args (log_string:String)  debug false
                 in cmd_args with context ctx
             )
