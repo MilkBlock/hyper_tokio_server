@@ -61,7 +61,7 @@ impl WsThreadInfo{
 async fn main () {
     let server = TcpListener::bind("0.0.0.0:11451").await.expect("bind 端口失败");
     // ? 服务端端口注册完毕，进行数据初始化
-    let mut _server_data = ServerData{rooms:Vec::from([Room::new(1)]),boards:Slab::new(),visitors:Slab::new(),referees:Slab::new(), player_apps: Slab::new()};
+    let mut _server_data = ServerData{rooms:Vec::from([Room::new(1),Room::new(0)]),boards:Slab::new(),visitors:Slab::new(),referees:Slab::new(), player_apps: Slab::new()};
     let server_data_arctex =Arc::new(Mutex::new(_server_data));
     let mut connection_counter = 0;
     println!("server started ... v0.2.2");
@@ -107,7 +107,6 @@ async fn main () {
                         command request_list_rooms with args () debug true
                         command request_set_board_coords with args (board_id:usize,x:f32,y:f32) debug true
                         command request_list_boards with args () debug true
-                        // command request_get_model_type with args () debug true
                         in msg_args 
                         with context ctx
                     )
@@ -214,7 +213,7 @@ async fn after_app_confirmed(ctx:Context){
                     command request_list_rooms with args () debug true
                     command request_list_boards with args () debug true
                     command log with args (log_string:String)  debug false
-                    command check with args () debug true 
+                    command check with args () debug false 
                     in cmd_args with context ctx
                 )
             },
@@ -261,6 +260,7 @@ async fn after_referee_confirmed(ctx:Context){
                 command request_list_boards with args () debug true
                 command request_list_boards_in_room with args (room_num:u32) debug true
                 command request_set_board_coords with args (board_id:usize,x:f32,y:f32) debug true
+                command check with args () debug false 
                 command log with args (log_string:String)  debug false
                 in cmd_args with context ctx
             )
@@ -278,8 +278,9 @@ async fn after_visitor_confirmed(ctx:Context){
             match_command!(
                 // command request_list_rooms with args () debug true
                 // command request_list_boards with args () debug true
-                // command request_list_boards_in_room with args (room_num:u32) debug true
+                command request_list_boards_in_room with args (room_num:u32) debug true
                 // command request_set_board_coords with args (board_id:usize,x:f32,y:f32) debug true
+                command check with args () debug false 
                 command request_get_model_type with args () debug true
                 command log with args (log_string:String)  debug false
                 in cmd_args with context ctx

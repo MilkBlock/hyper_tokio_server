@@ -132,8 +132,9 @@ pub async fn request_list_boards_in_room(ctx:Context,room_num:&u32){
             .map(|(board_id, board_info)| format!("({},{})",board_id,board_info.op_board_name.clone().unwrap_or_else(||{debug_info_red!("这个 board_id:{} 没有对应的 board_name",board_id);"no_name".to_string()})))
             .collect();
     let str_board_ids_names: String  =format!("{}",board_ids_names.join(","));
-    write.send(Message::Text(format!("response_list_boards:({})",str_board_ids_names))).await;
-    debug_info_blue!("{}",Message::Text(format!("response_list_boards:({})",str_board_ids_names)).to_string());
+    // write.send(Message::Text(format!("response_list_boards:({})",str_board_ids_names))).await;
+    write.send(Message::Text(format!("response_list_boards_in_room:((1,\"METRO\"),(2,\"elo\"))"))).await;
+    debug_info_blue!("{}",Message::Text(format!("response_list_boards_in_room:({})",str_board_ids_names)).to_string());
 }
 
 // visitor related 
