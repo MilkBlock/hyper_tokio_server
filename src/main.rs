@@ -33,7 +33,7 @@ use crate::command_args::MessageArgs;
 use crate::request::{ check, log, register_app, register_board, register_referee, register_visitor, request_get_model_type, request_list_boards, request_list_boards_in_room, request_list_rooms, request_set_board_coords, Context};
 
 const ONLINE_TIMEOUT_SECS:u64 = 4;
-const INF_ONLINE_TIMEOUT_SECS:u64 = 4;
+const INF_ONLINE_TIMEOUT_SECS:u64 = 3600;
 const REQUEST_ONLINE_CHECK_INTERVAL:u64 = 2;
 pub struct ServerData{
     rooms : Vec<Room>,

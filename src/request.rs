@@ -69,7 +69,7 @@ pub async fn request_list_rooms(ctx:Context){
     // server_data.rooms.iter().map(|x| x.to_string()).
     let rooms_strs:Vec<String> = server_data.rooms.iter().map(|room|room.room_num.to_string()).collect();
     let rooms_str  =rooms_strs.join(",");
-    // write.send(Message::Text(format!("response_list_rooms:({})",rooms_str))).await;
+    write.send(Message::Text(format!("response_list_rooms:({})",rooms_str))).await;
     debug_info_blue!("{}",Message::Text(format!("response_list_rooms:({})",rooms_str)).to_string());
 }
 pub async fn request_list_boards(ctx:Context){
@@ -128,12 +128,12 @@ pub async fn request_set_board_coords(ctx:Context,board_id:&usize,x:&f32,y:&f32)
 }
 pub async fn request_list_boards_in_room(ctx:Context,room_num:&u32){
     let (server_data,mut write)= (ctx.server_data_arctex.lock().await,ctx.write.lock().await);
-    let board_ids:Vec<String>  = server_data.boards.iter().filter(|(board_id, board_info)|board_info.op_board_name.is_some()&& board_info.op_room_num.unwrap() == *room_num)
+    let board_ids_names:Vec<String>  = server_data.boards.iter().filter(|(board_id, board_info)|board_info.op_board_name.is_some()&& board_info.op_room_num.unwrap() == *room_num)
             .map(|(board_id, board_info)| format!("({},{})",board_id,board_info.op_board_name.clone().unwrap_or_else(||{debug_info_red!("这个 board_id:{} 没有对应的 board_name",board_id);"no_name".to_string()})))
             .collect();
-    let str_board_ids: String  =format!("{}",board_ids.join(","));
-    write.send(Message::Text(format!("response_list_boards:({})",str_board_ids))).await;
-    debug_info_blue!("{}",Message::Text(format!("response_list_boards:({})",str_board_ids)).to_string());
+    let str_board_ids_names: String  =format!("{}",board_ids_names.join(","));
+    write.send(Message::Text(format!("response_list_boards:({})",str_board_ids_names))).await;
+    debug_info_blue!("{}",Message::Text(format!("response_list_boards:({})",str_board_ids_names)).to_string());
 }
 
 // visitor related 
