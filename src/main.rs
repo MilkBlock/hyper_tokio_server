@@ -96,13 +96,18 @@ async fn main () {
                     let msg_args = MessageArgs::parse_message(msg);
                     match_command!(
                         command register_app with args (user_name:String,room_num:u32,board_id:usize) debug true
-                            => after_app_confirmed,online_check
+                            => after_app_confirmed,
+                            online_check
                         command register_board with args (wifi:String,ip:String) debug true
-                            => after_board_confirmed,online_check
+                            => after_board_confirmed,
+                            online_check
                         command register_referee with args (room_num:u32) debug true
-                            => after_referee_confirmed,online_check
+                            => after_referee_confirmed,
+                            online_check
                         command register_visitor with args (room_num:u32) debug true
-                            => after_visitor_confirmed,online_check
+                            => after_visitor_confirmed,
+                            online_check,
+                            test_send_xy_to_visitor
                         command log with args (log_str:String) debug false
                         command request_list_rooms with args () debug true
                         command request_set_board_coords with args (board_id:usize,x:f32,y:f32) debug true
@@ -286,5 +291,36 @@ async fn after_visitor_confirmed(ctx:Context){
                 in cmd_args with context ctx
             )
         }
+    }
+}
+async fn test_send_xy_to_visitor(ctx:Context){
+    debug_info_green!("thread send xy to visitor started");
+    let (mut x1,mut y1) = (0.0,0.0);
+    let (mut x2,mut y2) = (1.0,1.0);
+    loop {
+        match ctx.write.lock().await.send(Message::Text(format!("request_set_board_coords:({},{},{})",1,x1,y1))).await{
+            Ok(_) => {
+                // do nothing 管杀不管埋
+            },
+            Err(_) => {}
+            // debug_info_red!("无法发送 online check")
+        }
+        match ctx.write.lock().await.send(Message::Text(format!("request_set_board_coords:({},{},{})",2,x2,y2))).await{
+            Ok(_) => {
+                // do nothing 管杀不管埋
+            },
+            Err(_) => {}
+            // debug_info_red!("无法发送 online check")
+        }
+        x1 += 0.02;
+        y1 += 0.02;
+        x2 -= 0.02;
+        y2 -= 0.02;
+
+        match ctx.ws_thread_info_arctex.lock().await.character{
+            Character::Exited => {debug_info_green!("online_check exited" ); return;},
+            _ => {},
+        }
+        sleep(Duration::from_secs(1)).await;
     }
 }
