@@ -312,15 +312,15 @@ async fn test_send_xy_to_visitor(ctx:Context){
             Err(_) => {}
             // debug_info_red!("无法发送 online check")
         }
-        x1 += 0.02;
-        y1 += 0.02;
-        x2 -= 0.02;
-        y2 -= 0.02;
+        x1 += 0.0002;
+        y1 += 0.0002;
+        x2 -= 0.0002;
+        y2 -= 0.0002;
 
         match ctx.ws_thread_info_arctex.lock().await.character{
             Character::Exited => {debug_info_green!("online_check exited" ); return;},
             _ => {},
         }
-        sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(0.02)).await;
     }
 }
