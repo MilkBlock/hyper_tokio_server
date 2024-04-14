@@ -106,8 +106,8 @@ async fn main () {
                             online_check
                         command register_visitor with args (room_num:u32) debug true
                             => after_visitor_confirmed,
-                            online_check,
-                            test_send_xy_to_visitor
+                            online_check
+                            // test_send_xy_to_visitor
                         command log with args (log_str:String) debug false
                         command request_list_rooms with args () debug true
                         command request_set_board_coords with args (board_id:usize,x:f32,y:f32) debug true
@@ -136,9 +136,11 @@ async fn close_sock(ctx:Context){
             debug_info_green!("not sure disconnected")
         },
         Character::Referee { referee_id } => {
+            ctx.server_data_arctex.lock().await.referees.remove(referee_id);
             debug_info_green!("referee disconnected")
         }
         Character::Visitor { visitor_id} => {
+            ctx.server_data_arctex.lock().await.visitors.remove(visitor_id);
             debug_info_green!("visitor disconnected")
         },
         Character::Exited => {debug_info_red!("你不能断开已经断开的连接char")},
@@ -321,6 +323,6 @@ async fn test_send_xy_to_visitor(ctx:Context){
             Character::Exited => {debug_info_green!("online_check exited" ); return;},
             _ => {},
         }
-        sleep(Duration::from_secs(0.02)).await;
+        sleep(Duration::from_millis(20)).await;
     }
 }

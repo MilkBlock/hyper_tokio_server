@@ -20,7 +20,6 @@ pub struct Context{
 }
 
 pub async fn register_app(ctx:Context,user_name:&String, room_num:&u32, board_idx:&usize){ 
-    
     debug_info_green!("start register app");
     let mut server_data = ctx.server_data_arctex.lock().await;
     ctx.ws_thread_info_arctex.lock().await.character = Character::App {  board_id: *board_idx, };
@@ -112,18 +111,20 @@ pub async fn register_visitor(ctx:Context,room_num:&u32){
 pub async fn request_set_board_coords(ctx:Context,board_id:&usize,x:&f32,y:&f32) {
     debug_info_green!("send x:{} y:{} to board {}",x,y,board_id);
     let mut server_data = ctx.server_data_arctex.lock().await;
-    let (msg,board_op_room_num) = match server_data.boards.get(*board_id){
-        Some(board_info) => {
-            (Message::Text(format!("request_set_board_coords:({},{},{})",board_id,x,y)),board_info.op_room_num.clone())
-        },
-        None => {debug_info_red!("未找到这个 board_id:{} 对应的 board",board_id);return;},
-    };
+    // let (msg,board_op_room_num) = match server_data.boards.get(*board_id){
+    //     Some(board_info) => {
+    //         (Message::Text(format!("request_set_board_coords:({},{},{})",board_id,x,y)),board_info.op_room_num.clone())
+    //     },
+    //     None => {debug_info_red!("未找到这个 board_id:{} 对应的 board",board_id);return;},
+    // };
     for (_,visitor) in server_data.visitors.iter_mut(){
-        if Some(visitor.room_num) == board_op_room_num{
-            visitor.write.lock().await.send(msg.clone());
-        }else{
-            debug_info_red!("未找到这个 board_id:{} 对应的 board",board_id);return;
-        }
+        // if Some(visitor.room_num) == board_op_room_num{
+        //     visitor.write.lock().await.send(msg.clone());
+        // }else{
+        //     debug_info_red!("未找到这个 board_id:{} 对应的 board",board_id);return;
+        // }
+        visitor.write.lock().await.send(Message::Text(format!("request_set_board_coords:({},{},{})",board_id,x,y))).await;
+        debug_info_green!("sended coords to visitor")
     }
 }
 pub async fn request_list_boards_in_room(ctx:Context,room_num:&u32){
